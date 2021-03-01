@@ -1,0 +1,321 @@
+version: "3.8"
+
+services:
+
+    percona:
+        image: "percona:${MYSQL_VERSION:-8}"
+        labels:
+            localdomain.container.description: "container database"
+        command: --default-authentication-plugin=mysql_native_password
+        networks:
+            nextcloud:
+                aliases:
+                    - db
+        environment:
+            - MYSQL_ROOT_PASSWORD_FILE=/run/secrets/mysql_root_password
+            - MYSQL_DATABASE=${MYSQL_DATABASE:-nextcloud}
+            - MYSQL_USER=${MYSQL_USER:-nextcloud}
+            - MYSQL_PASSWORD_FILE=/run/secrets/mysql_password
+        volumes:
+            - type: volume
+              source: percona
+              target: /var/lib/mysql
+        dns_search:
+            - "${DNS_SEARCH:-localdomain}"
+        deploy:
+            labels:
+                localdomain.service.description: "service database"
+            replicas: 1
+            mode: replicated
+            endpoint_mode: vip
+            placement:
+                max_replicas_per_node: 1
+                constraints:
+                    - node.role == ${PERCONA_NODE_ROLE:-manager}
+                    - node.hostname == ${PERCONA_NODE_HOSTNAME:-manager}
+            resources:
+                limits:
+                    cpus: "${PERCONA_LIMITS_CPUS:-0.2}"
+                    memory: "${PERCONA_LIMITS_MEMORY:-200M}"
+                reservations:
+                    cpus: "${PERCONA_RESERVATIONS_CPUS:-0.1}"
+                    memory: "${PERCONA_RESERVATIONS_MEMORY:-10M}"
+        logging:
+            driver: "json-file"
+            options:
+                max-size: "100k"
+                max-file: "3"
+        secrets:
+            - source: mysql_root_password
+              target: mysql_root_password
+            - source: mysql_password
+              target: mysql_password
+
+    adminer:
+        image: "adminer:${ADMINER_VERSION:-latest}"
+        labels:
+            localdomain.container.description: "webui database"
+        environment:
+            ADMINER_DEFAULT_SERVER: percona
+            ADMINER_DESIGN: "${ADMINER_DESIGN:-nette}"
+        networks:
+            - nextcloud
+        ports:
+            - "${ADMINER_PORT:-8080}:8080"
+        depends_on:
+            - percona
+        dns_search:
+            - "${DNS_SEARCH:-localdomain}"
+        deploy:
+            labels:                             
+                localdomain.service.description: "service webui database"
+            replicas: 1
+            mode: replicated
+            endpoint_mode: vip
+            placement:          
+                max_replicas_per_node: 1
+                constraints:                          
+                    - node.role == ${ADMINER_NODE_ROLE:-worker}
+                    - node.hostname == ${ADMINER_NODE_HOSTNAME:-worker1}
+            resources:
+                limits:
+                    cpus: "${ADMINER_LIMITS_CPUS:-0.2}"
+                    memory: "${ADMINER_LIMITS_MEMORY:-50M}"
+                reservations:
+                    cpus: "${ADMINER_RESERVATIONS_CPUS:-}"
+                    memory: "${ADMINER_RESERVATIONS_MEMORY:-10M}"
+        logging:
+            driver: "json-file"
+            options:
+                max-size: "100k"
+                max-file: "3"                    
+
+    redis:
+        image: "redis:${REDIS_VERSION:-alpine}"
+        labels:
+            localdomain.container.description: "inmemory db"
+        networks:
+            - nextcloud
+        volumes:
+            - type: volume
+              source: redis
+              target: /data
+        dns_search:
+            - "${DNS_SEARCH:-localdomain}"
+        deploy:
+            labels:                             
+                localdomain.service.description: "service inmemory db"                
+            replicas: 1
+            mode: replicated
+            endpoint_mode: vip            
+            placement:          
+                max_replicas_per_node: 1
+                constraints:                          
+                    - node.role == ${REDIS_NODE_ROLE:-worker}
+                    - node.hostname == ${REDIS_NODE_HOSTNAME:-worker1}
+            resources:
+                limits:
+                    cpus: "${REDIS_LIMITS_CPUS:-0.2}"
+                    memory: "${REDIS_LIMITS_MEMORY:-50M}"
+                reservations:
+                    cpus: "${REDIS_RESERVATIONS_CPUS:-0.20}"
+                    memory: "${REDIS_RESERVATIONS_MEMORY:-10M}"
+        logging:
+            driver: "json-file"
+            options:
+                max-size: "100k"
+                max-file: "3"                    
+
+    nextcloud:
+        image: "nextcloud:${NEXTCLOUD_VERSION:-fpm-alpine}"
+        labels:
+            localdomain.container.description: "cloud storage"
+        networks:
+            - nextcloud
+        volumes:
+            - type: volume
+              source: nextcloud
+              target: /var/www/html
+            - type: volume
+              source: data
+              target: /var/www/html/data
+            - type: volume
+              source: config
+              target: /var/www/html/config
+            - type: volume
+              source: theme
+              target: /var/www/html/themes/my_theme
+            - type: volume
+              source: apps
+              target: /var/www/html/custom_apps
+        dns_search:
+            - "${DNS_SEARCH:-localdomain}"
+        environment:
+            - MYSQL_HOST=percona
+            - MYSQL_DATABASE=${MYSQL_DATABASE:-nextcloud}
+            - MYSQL_USER=${MYSQL_USER:-nextcloud}
+            - MYSQL_PASSWORD_FILE=/run/secrets/mysql_password
+            - REDIS_HOST=redis
+            - NEXTCLOUD_TRUSTED_DOMAINS=${NEXTCLOUD_TRUSTED_DOMAINS:-cloud.localdomain}
+            - NEXTCLOUD_ADMIN_USER=${NEXTCLOUD_ADMIN_USER:-admin}
+            - NEXTCLOUD_ADMIN_PASSWORD_FILE=/run/secrets/nextcloud_admin_password
+            - SMTP_HOST=${SMTP_HOST:-localhost}
+            - MAIL_DOMAIN=${MAIL_DOMAIN:-localdomain}
+            - SMTP_PORT=${SMTP_PORT:-25}
+            - MAIL_FROM_ADDRESS=${MAIL_FROM_ADDRESS:-admin-nextcloud@localdomain}
+        depends_on:
+            - percona
+            - redis
+        deploy:
+            labels:                             
+                localdomain.service.description: "service cloud storage"                
+            replicas: 1
+            mode: replicated
+            endpoint_mode: vip            
+            placement:          
+                constraints:                          
+                    - node.role == ${NEXTCLOUD_NODE_ROLE:-worker}
+                    - node.hostname == ${NEXTCLOUD_NODE_HOSTNAME:-worker2}
+            resources:
+                limits:
+                    cpus: "${NEXTCLOUD_LIMITS_CPUS:-0.2}"
+                    memory: "${NEXTCLOUD_LIMITS_MEMORY:-200M}"
+                reservations:
+                    cpus: "${NEXTCLOUD_RESERVATIONS_CPUS:-0.10}"
+                    memory: "${NEXTCLOUD_RESERVATIONS_MEMORY:-10M}"
+        logging:
+            driver: "json-file"
+            options:
+                max-size: "100k"
+                max-file: "3"
+        secrets:
+            - source: mysql_password
+              target: mysql_password
+            - source: nextcloud_admin_password
+              target: nextcloud_admin_password              
+
+    nginx:
+        image: "nginx:${NGINX_VERSION:-stable-alpine}"
+        labels:
+            localdomain.container.description: "web server"
+        networks:
+            - nextcloud
+        ports:
+            - "${NGINX_PORT_HTTP:-80}:80"
+            - "${NGINX_PORT_HTTPS:-443}:443"
+        volumes:
+            - type: volume
+              source: nextcloud
+              target: /var/www/html
+            - type: volume
+              source: data
+              target: /var/www/html/data
+            - type: volume
+              source: config
+              target: /var/www/html/config
+            - type: volume
+              source: theme
+              target: /var/www/html/themes/my_theme
+            - type: volume
+              source: apps
+              target: /var/www/html/custom_apps
+        dns_search:
+            - "${DNS_SEARCH:-local.domain}"
+        depends_on:
+            - percona
+            - redis
+            - nextcloud
+        deploy:
+            labels:                             
+                localdomain.service.description: "service web server"                
+            replicas: 1
+            mode: replicated
+            endpoint_mode: vip            
+            placement:          
+                constraints:                          
+                    - node.role == ${NGINX_NODE_ROLE:-worker}
+                    - node.hostname == ${NGINX_NODE_HOSTNAME:-worker2}
+            resources:
+                limits:
+                        cpus: "${NGINX_LIMITS_CPUS:-0.2}"
+                        memory: "${NGINX_LIMITS_MEMORY:-50M}"
+                reservations:
+                        cpus: "${NGINX_RESERVATIONS_CPUS:-0.10}"
+                        memory: "${NGINX_RESERVATIONS_MEMORY:-10M}"
+        logging:
+            driver: "json-file"
+            options:
+                max-size: "100k"
+                max-file: "3"                        
+        configs:
+            - source: nextcloud_conf
+              target: /etc/nginx/conf.d/nextcloud.conf
+        secrets:
+            - source: cloud_crt
+              target: cloud_localdomain_crt
+            - source: cloud_key
+              target: cloud_localdomain_key
+
+networks:
+    nextcloud:
+
+volumes:
+    percona:
+      driver: local
+      driver_opts:
+        type: "nfs"
+        o: "addr=${NFS_SERVER},nolock,soft,rw"
+        device: ":${NFS_PATH}/percona"
+    redis:
+      driver: local
+      driver_opts:
+        type: "nfs"
+        o: "addr=${NFS_SERVER},nolock,soft,rw"
+        device: ":${NFS_PATH}/redis"
+    nextcloud:
+      driver: local
+      driver_opts:
+        type: "nfs"
+        o: "addr=${NFS_SERVER},nolock,soft,rw"
+        device: ":${NFS_PATH}/nextcloud"
+    data:
+      driver: local
+      driver_opts:
+        type: "nfs"
+        o: "addr=${NFS_SERVER},nolock,soft,rw"
+        device: ":${NFS_PATH}/data"
+    config:
+      driver: local
+      driver_opts:
+        type: "nfs"
+        o: "addr=${NFS_SERVER},nolock,soft,rw"
+        device: ":${NFS_PATH}/config"
+    theme:
+      driver: local
+      driver_opts:
+        type: "nfs"
+        o: "addr=${NFS_SERVER},nolock,soft,rw"
+        device: ":${NFS_PATH}/theme"
+    apps:
+      driver: local
+      driver_opts:
+        type: "nfs"
+        o: "addr=${NFS_SERVER},nolock,soft,rw"
+        device: ":${NFS_PATH}/apps"
+
+configs:
+    nextcloud_conf:
+        file: "./conf/nextcloud_conf"
+
+secrets:
+    mysql_root_password:
+        file: "${MYSQL_ROOT_PASSWORD_FILE:-./secret/mysql_root_password}"
+    mysql_password:
+        file: "${MYSQL_PASSWORD_FILE:-./secret/mysql_password}"
+    nextcloud_admin_password:
+        file: "${NEXTCLOUD_ADMIN_PASSWORD_FILE:-./secret/nextcloud_admin_password}"
+    cloud_crt:
+        file: "${CRT:-./secret/cloud_localdomain_crt}"
+    cloud_key:      
+        file: "${KEY:-./secret/cloud_localdomain_key}"
+
