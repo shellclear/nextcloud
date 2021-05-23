@@ -140,12 +140,6 @@ services:
               source: data
               target: /var/www/html/data
             - type: volume
-              source: config
-              target: /var/www/html/config
-            - type: volume
-              source: theme
-              target: /var/www/html/themes/my_theme
-            - type: volume
               source: apps
               target: /var/www/html/custom_apps
         dns_search:
@@ -210,12 +204,6 @@ services:
             - type: volume
               source: data
               target: /var/www/html/data
-            - type: volume
-              source: config
-              target: /var/www/html/config
-            - type: volume
-              source: theme
-              target: /var/www/html/themes/my_theme
             - type: volume
               source: apps
               target: /var/www/html/custom_apps
@@ -284,18 +272,6 @@ volumes:
         type: "nfs"
         o: "addr=${NFS_SERVER},nolock,soft,rw"
         device: ":${NFS_PATH}/data"
-    config:
-      driver: local
-      driver_opts:
-        type: "nfs"
-        o: "addr=${NFS_SERVER},nolock,soft,rw"
-        device: ":${NFS_PATH}/config"
-    theme:
-      driver: local
-      driver_opts:
-        type: "nfs"
-        o: "addr=${NFS_SERVER},nolock,soft,rw"
-        device: ":${NFS_PATH}/theme"
     apps:
       driver: local
       driver_opts:
